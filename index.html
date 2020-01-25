@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>wie v1.001</title>
+    <style media="screen">
+      *{
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      #result{
+        position: fixed;
+        bottom: 0;
+        padding: 50px;
+        background-color: #282C35;
+        color: white;
+        width: 100%;
+        height: 250px;
+        border-top: 1px solid #171C22;
+
+      }
+      #result .toolbox{
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 40px;
+        padding: 7px;
+        width: 100%;
+        background-color: #21242B;
+        border-bottom: 2px solid #6C8BCB;
+      }
+      div#console{
+        position: relative;
+        width: 100%;
+        height: 120%;
+      }
+      #console #debug{
+        width: 100%;
+        height: 100%;
+        overflow-y: auto;
+      }
+      .toolbox span {
+        color: #9A9EA9;
+        padding: 2px 12px;
+        padding-bottom: 13px;
+        margin-left: 30px;
+        margin-top: 13px;
+        font-weight: bolder;
+        font-family: sans-serif;
+      }
+      .toolbox span:first-child {
+        margin-left: 150px;
+      }
+      span.active{
+        color: #CFD0D5;
+        background-color: #282C35;
+        border-radius: 3px 3px 0 0;
+        border-top: 1px solid #557ac3;
+        border-right: 1px solid #557ac3;
+        border-left: 1px solid #557ac3;
+
+      }
+      p#error{
+        color: #E7A757;
+      }
+      span#parse{
+        color: #557ac3;
+      }
+      span#linenum{
+        color: #636363;
+      }
+      button.btn{
+        background-color: #859595;
+        border: none;
+        padding: 10px;
+        border-radius: 2px;
+        color: #e7e7e7;
+        cursor: pointer;
+        transition: 2s;
+      }
+      button.btn:hover{
+        background: #969686;
+      }
+      button.btn-stack{
+        position: absolute;
+        top: 5px;
+        right: 50px;
+      }
+      p#stack{
+        color: #189E64;
+        font-weight: bold;
+        font-style: italic;
+      }
+      form textarea {
+        resize:none;
+        width: 100%;
+        height: 510px;
+        padding: 50px;
+        background-color: #282C35;
+        color: #C3C1CC;
+        font-family:fantasy;
+        font-size: 16px;
+        border: none;
+      }
+      .btn-run{
+        font-size: 18px;
+        width: 100%;
+      }
+      .topTool {
+        position: fixed;
+        width: 100%;
+        padding: 5px;
+        background: linear-gradient(to bottom,#21242B,#2c303a );
+        border-bottom: 1px solid #171C22;
+      }
+      .topTool span{
+        position: absolute;
+        right: 600px;
+        top: 10px;
+        font-family: sans-serif;
+        font-size: 13px;
+        color: #c3c3c3;
+      }
+      .btn-run-icon{
+        width: 25px;
+        height: 25px;
+        margin: auto;
+        z-index: 999;
+        cursor: pointer;
+        background: url(play.svg);
+        background-size: 100% 100%;
+        transition: .5s;
+      }
+      .btn-run-icon:hover{
+        filter: hue-rotate(100deg);
+      }
+
+    </style>
+  </head>
+  <body>
+    <script type="text/javascript">
+    "use strict";
+
+    ////////////////////////////////////////////////////////////
+    /*///////*/ var env = Object.create(null); /*////////////*/
+    //////////////////////////////////////////////////////////
+
+      function parseExpression(program){
+        program = ignoreSpace(program);
+        var expr, match;
+        if(match = /^"([^"]*)"/.exec(program)){
+          expr = {
+            type : "value",
+            value : match[1]
+          };
+        }
+        else if(match = /^-?[\d.]+\b/.exec(program)){
+          expr = {
+            type : "value",
+            value : Number(match[0])
+          };
+        }
+        else if(match = /^[^\s(),"]+/.exec(program)){
+          expr = {
+            type : "word",
+            name : match[0]
+          };
+        }
+        else
+          throw new SyntaxError("Unexpected syntax "+program);
+          return parseApply(expr, program.slice(match[0].length));
+      }
+      function parseApply(expr, program){
+        program = ignoreSpace(program);
+        if(program[0] != "(")
+          return {expr : expr, rest: program};
+        //if it is (
+        expr = {
+          type : "apply", operator : expr, args : []
+        };
+        program = program.slice(1);
+        program = ignoreSpace(program);
+        //dealing with arguments
+        while(program[0] != ")"){
+        //know what type of data is the argument
+        //arg is an object that contains expr(info about it self) rest(contains the rest of the program)
+          var arg = parseExpression(program);
+          expr.args.push(arg.expr);
+          program = ignoreSpace(arg.rest);
+          if(program[0] == "," || program[0] == "፣")
+            program = program.slice(1);
+          else if(program[0] != ")")
+            throw new SyntaxError("Expecting ',' or ')'");
+          }
+        return parseApply(expr, program.slice(1));
+      }
+      function ignoreSpace(string){
+
+
+        while(string.search(/^(\s|#)/) == 0 ){
+
+            var frist = string.search(/\S/);
+            if(frist == -1) {
+                return "";
+      }
+
+      else{
+        string = string.slice(frist);
+        var x = string.search(/^#([\w*\d*\s*])*(#|\n)/);
+        if(x != -1)
+        string = processComment(string);
+      }
+    }
+
+    return string;
+    }
+
+      function processComment(string){
+
+        string=string.slice(1);
+        var last = string.search(/(#|\n)/);
+        return string.slice(last+1);
+
+      }
+      //
+      ///
+      ////
+      ////
+      ////
+      function evaluate(expr, env){
+        switch (expr.type) {
+          case "value":
+                return expr.value;
+          case "word":
+                if(expr.name in env){
+                  return env[expr.name];
+                }
+                else{
+                  throw new ReferenceError("Undefined variable: "+ expr.name);
+                }
+          case "apply":
+              if(expr.operator.type == "word" && expr.operator.name in specialForm)
+              return specialForm[expr.operator.name](expr.args, env);
+
+              var op = evaluate(expr.operator, env);
+
+              if(typeof op != "function")
+                throw new TypeError("Calling to a non-function :" + op);
+              console.log('called' +op);
+              return op.apply(null, expr.args.map(function(arg){
+                return evaluate(arg, env);
+              }));
+        }
+      }
+      // 0985384479
+      ////ሠጰጵሠሣሣሠ ሠደጀለሠከደ
+      var specialForm = Object.create(null);
+      specialForm = {
+        "ደምር" : function(args,env){
+            var mapedArgs = args.map(function(n){
+                    return evaluate(n,env);
+            });
+
+            var sum =  mapedArgs.reduce(function(n,m){
+            if(typeof n == 'number'){
+                if(typeof m == 'number'){
+
+                  return n + m;
+                }
+                else
+                throw new TypeError("Tring to add non-numuric value : "+m);
+          }
+            else
+              throw new TypeError("Tring to add non-numuric value : "+ n);
+          });
+
+          return sum;
+        },
+        "+" : function(args,env){
+            var mapedArgs = args.map(function(n){
+                    return evaluate(n,env);
+            });
+
+            var sum =  mapedArgs.reduce(function(n,m){
+            if(typeof n == 'number'){
+                if(typeof m == 'number'){
+
+                  return n + m;
+                }
+                else
+                throw new TypeError("Tring to add non-numuric value : "+m);
+          }
+            else
+              throw new TypeError("Tring to add non-numuric value : "+ n);
+          });
+
+          return sum;
+        },
+        "ቀንስ" : function(args,env){
+            var mapedArgs = args.map(function(n){
+                    return evaluate(n,env);
+            });
+
+            var dif =  mapedArgs.reduce(function(n,m){
+            if(typeof n == 'number'){
+                if(typeof m == 'number'){
+
+                  return n - m;
+                }
+                else
+                throw new TypeError("Tring to add non-numuric value : "+m);
+          }
+            else
+              throw new TypeError("Tring to add non-numuric value : "+ n);
+          });
+
+          return dif;
+        },
+
+        "-" : function(args,env){
+            var mapedArgs = args.map(function(n){
+                    return evaluate(n,env);
+            });
+
+            var dif =  mapedArgs.reduce(function(n,m){
+            if(typeof n == 'number'){
+                if(typeof m == 'number'){
+
+                  return n - m;
+                }
+                else
+                throw new TypeError("Tring to add non-numuric value : "+m);
+          }
+            else
+              throw new TypeError("Tring to add non-numuric value : "+ n);
+          });
+
+          return dif;
+        },
+        "++" : function(args,env){
+          if(args.length != 1 && args.length != 2)
+            throw new SyntaxError("Bad number of argument to '++', expecting 1 or 2");
+          if(args[0].type != "word")
+            throw new TypeError(" '++' expects 'word' type as frist parameter : not  '"+ args[0].type + "'.");
+
+          var value = evaluate(args[0], env);
+          if(args.length == 1)
+            value++;
+          else
+            value += evaluate(args[1], env);
+          env[args[0].name] = value;
+          return value;
+        },
+        "አባዛ" : function(args,env){
+            var mapedArgs = args.map(function(n){
+                    return evaluate(n,env);
+            });
+
+            var pro =  mapedArgs.reduce(function(n,m){
+            if(typeof n == 'number'){
+                if(typeof m == 'number'){
+
+                  return n * m;
+                }
+                else
+                throw new TypeError("Tring to add non-numuric value : "+m);
+          }
+            else
+              throw new TypeError("Tring to add non-numuric value : "+ n);
+          });
+
+          return pro;
+        },
+        "*" : function(args,env){
+            var mapedArgs = args.map(function(n){
+                    return evaluate(n,env);
+            });
+
+            var pro =  mapedArgs.reduce(function(n,m){
+            if(typeof n == 'number'){
+                if(typeof m == 'number'){
+
+                  return n * m;
+                }
+                else
+                throw new TypeError("Tring to add non-numuric value : "+m);
+          }
+            else
+              throw new TypeError("Tring to add non-numuric value : "+ n);
+          });
+
+          return pro;
+        },
+        "አካፍል" : function(args,env){
+            var mapedArgs = args.map(function(n){
+                    return evaluate(n,env);
+            });
+
+            var pro =  mapedArgs.reduce(function(n,m){
+            if(typeof n == 'number'){
+                if(typeof m == 'number'){
+
+                  return n / m;
+                }
+                else
+                throw new TypeError("Tring to add non-numuric value : "+m);
+          }
+            else
+              throw new TypeError("Tring to add non-numuric value : "+ n);
+          });
+
+          return pro;
+        },
+        "/" : function(args,env){
+            var mapedArgs = args.map(function(n){
+                    return evaluate(n,env);
+            });
+
+            var pro =  mapedArgs.reduce(function(n,m){
+            if(typeof n == 'number'){
+                if(typeof m == 'number'){
+
+                  return n / m;
+                }
+                else
+                throw new TypeError("Tring to add non-numuric value : "+m);
+          }
+            else
+              throw new TypeError("Tring to add non-numuric value : "+ n);
+          });
+
+          return pro;
+        },
+        "ይበልጣል" : function(args, env){
+          if(args.length != 2)
+            throw new SyntaxError("Bad number of argument to 'ይበልጣል', expecting 2");
+          var mapedArgs = args.map(function(n){
+                  return evaluate(n,env);
+          });
+          return (mapedArgs[0] > mapedArgs[1]) ? true : false;
+        },
+        ">" : function(args, env){
+          if(args.length != 2)
+            throw new SyntaxError("Bad number of argument to '>', expecting 2");
+          var mapedArgs = args.map(function(n){
+                  return evaluate(n,env);
+          });
+          return (mapedArgs[0] > mapedArgs[1]) ? true : false;
+        },
+        "ያንሳል" : function(args, env){
+          if(args.length != 2)
+            throw new SyntaxError("Bad number of argument to 'ያንሳል', expecting 2");
+          var mapedArgs = args.map(function(n){
+                  return evaluate(n,env);
+          });
+          return (mapedArgs[0] < mapedArgs[1]) ? true : false;
+        },
+        "<" : function(args, env){
+          if(args.length != 2)
+            throw new SyntaxError("Bad number of arguments to '<', expecting 2");
+          var mapedArgs = args.map(function(n){
+                  return evaluate(n,env);
+          });
+          return (mapedArgs[0] < mapedArgs[1]) ? true : false;
+        },
+        "ከሆነ" : function(args, env){
+          if(args.length != 3)
+            throw new SyntaxError("Bad number of arguments to 'if', expection 3");
+          if(evaluate(args[0],env) !== false)
+              return evaluate(args[1],env);
+          else
+              return evaluate(args[2],env);
+
+        },
+        "if" : function(args, env){
+          if(args.length != 3)
+            throw new SyntaxError("Bad number of arguments to 'if', expection 3");
+          if(evaluate(args[0],env) !== false)
+              return evaluate(args[1],env);
+          else
+              return evaluate(args[2],env);
+
+        },
+        "while" : function (args, env){
+          if(args.length != 2)
+            throw new SyntaxError("Bad number of arguments to 'while', expection 2");
+          while(evaluate(args[0],env) !== false)
+            evaluate(args[1],env);
+          return false;
+        },
+        "define": function(args,env){
+          if(args.length != 2)
+            throw new SyntaxError("Bad number of arguments to 'define', expection 2");
+          if(args[0].type != "word")
+            throw new SyntaxError("'define' can't accept "+args[0].type+" as frist argument");
+          var value = evaluate(args[1],env);
+          env[args[0].name] = value;
+
+          return value;
+        },
+        "ሰይም" : function(args,env){
+          if(args.length != 2)
+            throw new SyntaxError("Bad number of arguments to 'define', expection 2");
+          if(args[0].type != "word")
+            throw new SyntaxError("'define' can't accept "+args[0].type+" as frist argument");
+          var value = evaluate(args[1],env);
+          env[args[0].name] = value;
+
+          return value;
+        },
+        "ሲሆን" : function (args, env){
+          if(args.length != 2)
+            throw new SyntaxError("Bad number of arguments to 'while', expection 2");
+          while(evaluate(args[0],env) !== false)
+            evaluate(args[1],env);
+          return false;
+        },
+        "ወይም" : function(args, env){
+          var mapedArgs = args.map(function(n){
+                  return evaluate(n,env);
+          });
+          mapedArgs.forEach(function (n){
+            if(typeof n != 'boolean')
+              throw new TypeError("non-boolean value passed to 'ወይም' "+ n);
+          });
+          if(mapedArgs.indexOf('true') != -1)
+            return true;
+          else
+            return false;
+        },
+        "or" : function(args, env){
+          var mapedArgs = args.map(function(n){
+                  return evaluate(n,env);
+          });
+          mapedArgs.forEach(function (n){
+            if(typeof n != 'boolean')
+              throw new TypeError("non-boolean value passed to 'ወይም' "+ n);
+          });
+          if(mapedArgs.indexOf('true') != -1)
+            return true;
+          else
+            return false;
+        },
+        "እና": function(args, env){
+          var mapedArgs = args.map(function(n){
+                  return evaluate(n,env);
+          });
+          mapedArgs.forEach(function (n){
+            if(typeof n != 'boolean')
+              throw new TypeError("non-boolean value passed to 'እና' "+ n);
+          });
+          if(mapedArgs.indexOf('false') != -1)
+            return false;
+          else
+            return true;
+        },
+        "and" : function(args, env){
+          var mapedArgs = args.map(function(n){
+                  return evaluate(n,env);
+          });
+          mapedArgs.forEach(function (n){
+            if(typeof n != 'boolean')
+              throw new TypeError("non-boolean value passed to 'እና' "+ n);
+          });
+          if(mapedArgs.indexOf('false') != -1)
+            return false;
+          else
+            return true;
+        },
+        "do" :function(args,env){
+          var value = false;
+          args.forEach(function(arg){
+            value = evaluate(arg,env);
+          });
+          return value;
+        },
+        "ስራ" : function(args, env){
+          var value = false;
+          args.forEach(function(arg){
+            value = evaluate(arg,env);
+          });
+          return value;
+        },
+       "fun" : function(args, env){
+         if(!args.length)
+          throw new SyntaxError("Functions need a body");
+
+        var body = args.pop();
+        var argName = args.map(function(arg){
+          if(arg.type != "word")
+            throw new SyntaxError("Arguments must be a variable, '" +arg.value+"' is not a variable");
+          return arg.name;
+        });
+        return function(){
+          if(arguments.length != argName.length)
+            throw new SyntaxError("Bad number of argument, expecting "+ argName.length);
+          var localEnv = Object.create(env);
+          for(var i = 0; i < arguments.length; i++){
+            localEnv[argName[i]] = arguments[i];
+          }
+          return evaluate(body, localEnv);
+        };
+       },
+
+       "ተግብር" : function(args, env){
+         if(!args.length)
+          throw new SyntaxError("Functions need a body");
+
+        var body = args.pop();
+        var argName = args.map(function(arg){
+          if(arg.type != "word")
+            throw new SyntaxError("Arguments must be a variable, '" +arg.value+"' is not a variable");
+          return arg.name;
+        });
+        return function(){
+          if(arguments.length != argName.length)
+            throw new SyntaxError("Bad number of argument, expecting "+ argName.length);
+          var localEnv = Object.create(env);
+          for(var i = 0; i < arguments.length; i++){
+            localEnv[argName[i]] = arguments[i];
+          }
+          return evaluate(body, localEnv);
+        };
+      },
+      "print": function(args, env){
+          if(!args.length)
+            throw new SyntaxError("Bad number of argument, print expects atleast 1");
+          var argValue = args.map(function(arg){
+            return evaluate(arg,env);
+          });
+          var string = "";
+          if(argValue.length == 1)
+            string = argValue[0];
+          else{
+          string = argValue.reduce(function(n,m){
+              return n + m;
+            });
+          }
+          console.log( string );
+          Wie.log(string);
+          return string;
+        },
+      "ፃፍ": function(args, env){
+          if(!args.length)
+            throw new SyntaxError("Bad number of argument, print expects atleast 1");
+          var argValue = args.map(function(arg){
+            return evaluate(arg,env);
+          });
+          var string = "";
+          if(argValue.length == 1)
+            string = argValue[0];
+          else{
+          string = argValue.reduce(function(n,m){
+              return n + m;
+            });
+          }
+          console.log( string );
+          Wie.log(string);
+          return string;
+        },
+      "array": function(args, env){
+        if(!args.length)
+          throw new SyntaxError("Bad number of argument, array expects atleast 1");
+          var argValue = args.map(function(arg){
+            return evaluate(arg,env);
+          });
+        return argValue;
+      },
+      "ዝርዝር": function(args, env){
+        if(!args.length)
+          throw new SyntaxError("Bad number of argument, array expects atleast 1");
+          var argValue = args.map(function(arg){
+            return evaluate(arg,env);
+          });
+        return argValue;
+      },
+      "element" : function(args, env){
+        if(args.length != 2)
+          throw new SyntaxError("Bad number of argument, element expects 2");
+        var argValue = args.map(function(arg){
+              return evaluate(arg,env);
+            });
+        if(typeof argValue[0] != "object")
+          throw new TypeError("Element expects an array as the first argument: " + argValue[0]);
+        if(typeof argValue[1] != "number")
+          throw new TypeError("Non-numuric value passed to element: " + argValue[1]);
+
+        return argValue[0][argValue[1]];
+
+      },
+      "አባል" : function(args, env){
+        if(args.length != 2)
+          throw new SyntaxError("Bad number of argument, element expects 2");
+        var argValue = args.map(function(arg){
+              return evaluate(arg,env);
+            });
+        if(typeof argValue[0] != "object")
+          throw new TypeError("Element expects an array as the first argument: " + argValue[0]);
+        if(typeof argValue[1] != "number")
+          throw new TypeError("Non-numuric value passed to element: " + argValue[1]);
+
+        return argValue[0][argValue[1]];
+
+      },
+      "length" : function(args, env){
+        if(args.length != 1)
+          throw new SyntaxError("Bad number of argument, length expects 1");
+        var argValue = args.map(function(arg){
+              return evaluate(arg,env);
+            });
+        if(typeof argValue[0] != "object")
+          throw new TypeError("Element expects an array as the first argument: " + argValue[0]);
+
+
+        return argValue[0].length;
+
+      },
+      "ብዛት" : function(args, env){
+        if(args.length != 1)
+          throw new SyntaxError("Bad number of argument, length expects 1");
+        var argValue = args.map(function(arg){
+              return evaluate(arg,env);
+            });
+        if(typeof argValue[0] != "object")
+          throw new TypeError("Element expects an array as the first argument: " + argValue[0]);
+
+
+        return argValue[0].length;
+
+      }
+     }
+      /////
+      ////
+      ///
+      ///
+
+      function parse(program){
+        var result = parseExpression(program);
+        if(result.rest.length > 0)
+          throw new SyntaxError("Unexpected text: "+ result.rest);
+        return evaluate(result.expr,env);
+      }
+
+    </script>
+    <div class="topTool">
+    <div onclick="run()"class="btn-run-icon"></div><span>press f8 to run</span>
+  </div>
+    <form name="code">
+      <textarea spellcheck="false" name="code" ></textarea>
+    </form>
+    <button class="btn btn-run" type="button" onclick="run()">run</button>
+
+    <div id="result" ><div class="toolbox"><span class="active">Console/Debug</span><span>Report</span><span>Setting</span><span>Theme</span></div>
+    <code><div id="console"><div id="debug">##------------console wie version 1.0.3 copyright &copy author baslielselamu2018@gmail.com --------------##<br></div><button type="button" onclick="showStack()"class="btn btn-stack">stack</button></div></code></div>
+
+    <script type="text/javascript">
+      var Wie = {};
+      Wie.log = function(string){
+        var span = document.createElement("span");
+        span.innerHTML = string;
+        document.getElementById("debug").appendChild(span);
+      }
+      var output = "##------------console wie version 1.0.3 copyright &copy author baslielselamu2018@gmail.com --------------##<br>";
+      var count = 0;
+      var stack = "";
+      document.addEventListener("keydown", function(e){
+        if(e.keyCode == 119){
+            run();
+        }
+      });
+      function run(){
+        try{
+         output += "<span id='linenum'>"+count++ +", </span> ";
+         output += "<span id='parse'>"+ parse(document.forms[0].elements[0].value) + "</span></br>";
+         document.getElementById('debug').innerHTML = output;
+       }catch(e){
+         stack = e.stack;
+         var name = "";
+         if(e instanceof SyntaxError) name = "SyntaxError : ";
+         else if(e instanceof TypeError) name = "TypeError : ";
+         else if(e instanceof ReferenceError) name = "ReferenceError : ";
+         var temp = document.getElementById('debug').innerHTML;
+         temp = temp +"<p id='error'>"+name+ e.message+"</p>";
+         document.getElementById('debug').innerHTML = temp;
+       }
+      }
+      function showStack(){
+        var temp = document.getElementById('debug').innerHTML;
+        if( stack != "")
+        document.getElementById('debug').innerHTML = temp + "<p id='stack'>" + stack + "</p>";
+        else
+        document.getElementById('debug').innerHTML = temp + "<p id='stack'> Stack is empty </p>";
+      }
+    </script>
+  </body>
+</html>
